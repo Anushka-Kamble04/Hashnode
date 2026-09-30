@@ -164,6 +164,165 @@ const getPostBySlug = async (req, res) => {
   }
 };
 
+const updatePost = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
 
+    if (!post) {
+      return res.status(404).json({
+        message: "Post not found",
+      });
+    }
+//Ownership check
+    if (!req.user._id.equals(post.author)) {
+  return res.status(403).json({
+    message: "You are not allowed to update this post",
+  });
+}
 
-module.exports = { createPost, getPublishedPosts, getPostBySlug };
+const { title, content, tags, coverImage, status } = req.body;
+//validate status
+if (status && !["draft", "published"].includes(status)) {
+  return res.status(400).json({
+    message: "Status must be either draft or published",
+  });
+}
+//validate tags
+if (tags && !Array.isArray(tags)) {
+  return res.status(400).json({
+    message: "Tags must be an array",
+  });
+}
+//If new title is provided and it's different from the current title, generate a new slug
+if (title && title !== post.title) {
+  const baseSlug = generateSlug(title);
+
+  let slug = baseSlug;
+  let counter = 2;
+
+  while (
+    await Post.findOne({
+      slug,
+      _id: { $ne: post._id },
+    })
+  ) {
+    slug = `${baseSlug}-${counter}`;
+    counter++;
+  }
+
+  post.slug = slug;
+}
+//Update fields if provided
+if (title) {
+  post.title = title;
+}
+
+if (content) {
+  post.content = content;
+  post.excerpt = generateExcerpt(content);
+}
+
+if (coverImage !== undefined) {
+  post.coverImage = coverImage;
+}
+
+if (status) {
+  post.status = status;
+}
+//Handle tags 
+if (tags) {
+  const tagIds = [];
+
+  for (const tagName of tags) {
+    const normalizedName = tagName.trim().toLowerCase();
+
+    if (!normalizedName) {
+      continue;
+    }
+
+    const tagSlug = generateSlug(normalizedName);
+
+    let tag = await Tag.findOne({
+      name: normalizedName,
+    });
+
+    if (!tag) {
+      tag = await Tag.create({
+        name: normalizedName,
+        slug: tagSlug,
+      });
+    }
+
+    tagIds.push(tag._id);
+  }
+
+  post.tags = tagIds;
+}
+//Save the updated post
+await post.save();
+
+return res.status(200).json({
+  message: "Post updated successfully",
+  post,
+});
+  } catch (error) {
+    console.error("Update post error:", error.message);
+
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+
+const deletePost = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+
+    if (!post) {
+      return res.status(404).json({
+        message: "Post not found",
+      });
+    }
+
+    // ownership check
+    if (!req.user._id.equals(post.author)) {
+  return res.status(403).json({
+    message: "You are not allowed to delete this post",
+  });
+}
+await post.deleteOne();
+
+return res.status(200).json({
+  message: "Post deleted successfully",
+});
+
+} catch (error) {
+    console.error("Delete post error:", error.message);
+
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+
+const getMyPosts = async (req, res) => {
+  try {
+    const posts = await Post.find({
+      author: req.user._id,
+    }).sort({
+      createdAt: -1,
+    });
+
+    return res.status(200).json({
+      posts,
+    });
+  } catch (error) {
+    console.error("Get my posts error:", error.message);
+
+    return res.status(500).json({
+      message: "Server error",
+    });
+  }
+};
+
+module.exports = { createPost, getPublishedPosts, getPostBySlug, updatePost, deletePost, getMyPosts };
